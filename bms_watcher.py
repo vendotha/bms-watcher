@@ -36,6 +36,7 @@ BMS_URL = os.environ["BMS_URL"]
 CHECK_MINUTES = float(os.getenv("CHECK_MINUTES", "5"))
 STATE_FILE = Path("state.json")
 TIME_RE = re.compile(r"^\d{1,2}:\d{2}\s?(AM|PM)$", re.I)
+LAST_INFO = ""
 
 
 # ---------------------------------------------------------------- scraping
@@ -65,6 +66,12 @@ JS_EXTRACT = """
 def fetch_shows(page):
     page.goto(BMS_URL, wait_until="domcontentloaded", timeout=60000)
     page.wait_for_timeout(6000)  # let the JS render
+    global LAST_INFO
+    try:
+        body = " ".join(page.inner_text("body").split())[:300]
+    except Exception:
+        body = "(could not read page body)"
+    LAST_INFO = f"title: {page.title()}\nurl: {page.url}\ntext: {body}"
     rows = page.evaluate(JS_EXTRACT)
     return sorted({f"{r['venue']} | {r['time']}" for r in rows if r["venue"]})
 
@@ -133,9 +140,14 @@ def main():
 
                 if not current:
                     failures += 1
-                    if failures == 6:
+                    if previous is None:
+                        # First run found nothing: send what the page looked like, once.
+                        notify("BMS watcher: 0 shows found",
+                               "Page seen by the bot:\n" + LAST_INFO)
+                        save_state(set())
+                    elif failures == 6:
                         notify("BMS watcher: no data", "6 checks in a row returned nothing. "
-                               "Possibly blocked or markup changed.")
+                               "Possibly blocked or markup changed.\n" + LAST_INFO)
                 else:
                     failures = 0
                     if previous is None:
