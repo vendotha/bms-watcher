@@ -1,0 +1,51 @@
+# Save as .github/workflows/bms.yml in your repo
+name: BMS watcher
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # every 5 min (GitHub may delay runs)
+  workflow_dispatch: {}      # lets you run it manually to test
+
+permissions:
+  contents: write            # needed to commit state.json
+
+concurrency:
+  group: bms-watcher
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install playwright requests
+          playwright install --with-deps chromium
+
+      - name: Run one check
+        env:
+          RUN_ONCE: "1"
+          BMS_URL: ${{ secrets.BMS_URL }}
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          CALLMEBOT_PHONE: ${{ secrets.CALLMEBOT_PHONE }}
+          CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
+        run: python bms_watcher.py
+
+      - name: Save state (only if changed)
+        run: |
+          git config user.name "bms-bot"
+          git config user.email "bms-bot@users.noreply.github.com"
+          git add state.json || true
+          git diff --cached --quiet || (git commit -m "update state" && git push)
